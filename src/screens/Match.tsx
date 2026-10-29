@@ -8,6 +8,7 @@ import { go } from '../lib/router';
 import { sfx } from '../lib/sound';
 import type { GameRow, RoundSpec } from '../lib/types';
 import { useCountdown } from '../lib/useCountdown';
+import BoatRace from '../components/BoatRace';
 import { Logo, NameCard } from './Home';
 import { matchStatus, total } from './matchStatus';
 import { CategoryChip } from './NewMatch';
@@ -69,7 +70,12 @@ export default function Match({ code }: { code: string }) {
 
   const st = matchStatus(g, me.id);
   if (!g.guest_id) return st.role === 'host' ? <Lobby g={g} /> : <JoinView g={g} onJoined={refresh} />;
-  if (!g.rounds) return <VetoPhase g={g} refresh={refresh} />;
+  if (!g.rounds) {
+    const bothReady = !!g.host_results.ready && !!g.guest_results.ready;
+    // Older duels already had a host veto and skip the rules screen
+    if (!bothReady && !g.host_veto) return <RulesScreen g={g} refresh={refresh} />;
+    return <VetoPhase g={g} refresh={refresh} />;
+  }
   return <Scoreboard g={g} />;
 }
 
@@ -220,6 +226,90 @@ function JoinView({ g, onJoined }: { g: GameRow; onJoined: () => Promise<void> }
       <button className="btn primary wide big" disabled={busy} onClick={join}>
         {busy ? 'Joining…' : '⚔️ Join duel'}
       </button>
+    </Shell>
+  );
+}
+
+function RulesScreen({ g, refresh }: { g: GameRow; refresh: () => Promise<void> }) {
+  const me = getProfile();
+  const st = matchStatus(g, me.id);
+  const [busy, setBusy] = useState(false);
+  const hostReady = !!g.host_results.ready;
+  const guestReady = !!g.guest_results.ready;
+  const iAmReady = st.role === 'host' ? hostReady : guestReady;
+
+  const ready = async () => {
+    if (st.role === 'none') return;
+    setBusy(true);
+    sfx.join();
+    try {
+      await backend.saveResults(g.id, st.role, {
+        ...st.mine,
+        ready: { status: 'ready', score: 0, correct: 0, total: 0, errors: 0, timeUsed: 0 },
+      });
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const tick = (on: boolean) => <span className={`ready-mark ${on ? 'on' : ''}`}>{on ? '✓ Ready' : '…'}</span>;
+
+  return (
+    <Shell>
+      <div className="card">
+        <div className="lobby-players">
+          <div className={`lp ${hostReady ? 'on' : ''}`}>
+            {g.host_name} {tick(hostReady)}
+          </div>
+          <div className="vs">VS</div>
+          <div className={`lp ${guestReady ? 'on' : ''}`}>
+            {g.guest_name} {tick(guestReady)}
+          </div>
+        </div>
+      </div>
+      <div className="card rules">
+        <h3>How this duel works</h3>
+        <ol>
+          <li>
+            <strong>Veto:</strong> {g.host_name} vetoes one of the 5 categories first, then {g.guest_name}.{' '}
+            {VETO_SECONDS} seconds each, or a random one goes.
+          </li>
+          <li>
+            <strong>3 rounds</strong> remain · {describeDifficulty(g.settings.difficulty)}. Both of you get exactly the
+            same questions.
+          </li>
+          <li>
+            <strong>Play whenever you like</strong>, but each round only once: as soon as you press Start, it counts.
+          </li>
+          <li>
+            <strong>Maps:</strong> type the names (English, German or Spanish, one wrong letter is fine) or tap the
+            place. Wrong guesses cost points, finishing fast earns a bonus.
+          </li>
+          <li>
+            <strong>Quizzes:</strong> faster right answers score more.
+          </li>
+          <li>You only see your opponent's score for a round after playing it yourself. Most points wins!</li>
+        </ol>
+      </div>
+      <div className="card">
+        <h3>On offer</h3>
+        <div className="cat-list">
+          {g.offered.map((id) => (
+            <CategoryChip key={id} id={id} />
+          ))}
+        </div>
+      </div>
+      {st.role !== 'none' &&
+        (iAmReady ? (
+          <p className="waiting center">
+            <span className="pulse" /> Waiting for {st.opponent} to get ready…
+          </p>
+        ) : (
+          <button className="btn primary wide big sticky-cta" disabled={busy} onClick={ready} data-sfx="off">
+            ✋ I'm ready
+          </button>
+        ))}
     </Shell>
   );
 }
@@ -378,8 +468,41 @@ function Scoreboard({ g }: { g: GameRow }) {
   // Only reveal opponent scores for rounds you've already played
   const visibleTheirs = rounds.reduce((s, _, i) => s + (mine[i] || spectator ? theirs[i]?.score ?? 0 : 0), 0);
 
+  // Boat race right after finishing a round
+  const [raceRound, setRaceRound] = useState<number | null>(() => {
+    try {
+      const [code, r] = (sessionStorage.getItem('quizora:race') ?? '').split(':');
+      return code === g.id && !spectator ? Number(r) : null;
+    } catch {
+      return null;
+    }
+  });
+  useEffect(() => {
+    try {
+      sessionStorage.removeItem('quizora:race');
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  const sumExcept = (res: typeof mine, skip: number) =>
+    rounds.reduce((s, _, i) => s + (i !== skip && mine[i] ? res[i]?.score ?? 0 : 0), 0);
+
   return (
     <Shell>
+      {raceRound !== null && (
+        <BoatRace
+          title={`After round ${raceRound + 1} of ${rounds.length}`}
+          me={{ name: 'You', before: sumExcept(mine, raceRound), after: myTotal, color: 'var(--teal)' }}
+          them={{
+            name: rightName ?? 'Opponent',
+            before: sumExcept(theirs, raceRound),
+            after: visibleTheirs,
+            color: 'var(--pink)',
+          }}
+          note={theirs[raceRound]?.status === 'done' ? undefined : `${rightName} hasn't played round ${raceRound + 1} yet.`}
+          onClose={() => setRaceRound(null)}
+        />
+      )}
       {st.finished && !spectator && (
         <div className={`banner ${st.tone}`}>
           {st.label === 'You won!' ? '🏆 You won!' : st.label === 'Draw' ? '🤝 Draw!' : `😅 ${rightName} won`}

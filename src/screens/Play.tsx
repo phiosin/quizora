@@ -46,7 +46,15 @@ export default function Play({ code, round }: { code: string; round: number }) {
       title={`Round ${round + 1} of ${count}`}
       onStart={() => save({ status: 'started', score: 0, correct: 0, total: 0, errors: 0, timeUsed: 0 })}
       onEnd={save}
-      onContinue={back}
+      onContinue={() => {
+        // Ask the scoreboard to show the boat race for this round
+        try {
+          sessionStorage.setItem('quizora:race', `${code}:${round}`);
+        } catch {
+          /* ignore */
+        }
+        back();
+      }}
       onBack={back}
     />
   );

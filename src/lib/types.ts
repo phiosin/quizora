@@ -28,7 +28,8 @@ export type RoundSpec =
     };
 
 export interface RoundResult {
-  status: 'started' | 'done';
+  /** 'ready' is only used under the "ready" key, before the veto phase. */
+  status: 'started' | 'done' | 'ready';
   score: number;
   correct: number;
   total: number;

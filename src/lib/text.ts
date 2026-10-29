@@ -33,8 +33,8 @@ export function levenshtein(a: string, b: string): number {
   return d[m][n];
 }
 
-/** Typos allowed for a name of this length. */
-const allowedTypos = (len: number) => (len >= 9 ? 2 : len >= 5 ? 1 : 0);
+/** One wrong letter is forgiven (names of 4+ letters). */
+const allowedTypos = (len: number) => (len >= 4 ? 1 : 0);
 
 export interface Named {
   id: string;
