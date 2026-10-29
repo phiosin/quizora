@@ -9,6 +9,7 @@ import { sfx } from '../lib/sound';
 import type { GameRow, RoundSpec } from '../lib/types';
 import { useCountdown } from '../lib/useCountdown';
 import BoatRace from '../components/BoatRace';
+import { cannotJoin } from '../lib/limits';
 import { Logo, NameCard } from './Home';
 import { matchStatus, total } from './matchStatus';
 import { CategoryChip } from './NewMatch';
@@ -224,6 +225,12 @@ function JoinView({ g, onJoined }: { g: GameRow; onJoined: () => Promise<void> }
     setErr('');
     try {
       const me = getProfile();
+      const why = await cannotJoin(me.id);
+      if (why) {
+        setErr(why);
+        setBusy(false);
+        return;
+      }
       const ok = await backend.joinGame(g.id, { guest_id: me.id, guest_name: me.name || 'Player' });
       if (!ok) {
         setErr('Someone else already joined this duel.');
@@ -684,6 +691,22 @@ function Scoreboard({ g }: { g: GameRow }) {
       {st.finished && (
         <button className="btn ghost wide" onClick={() => go('/new')}>
           ⚔️ New duel
+        </button>
+      )}
+      {!spectator && !st.myDone && (
+        <button
+          className="link center forfeit"
+          onClick={async () => {
+            if (!confirm('Forfeit this duel? Your remaining rounds count as 0 points.')) return;
+            const res = { ...mine };
+            rounds.forEach((_, i) => {
+              if (!res[i]) res[i] = { status: 'done', score: 0, correct: 0, total: 0, errors: 0, timeUsed: 0, gaveUp: true };
+            });
+            await backend.saveResults(g.id, st.role as 'host' | 'guest', res);
+            go('/');
+          }}
+        >
+          🏳️ Forfeit duel
         </button>
       )}
       {spectator && <p className="muted center">This duel already has two players. You're watching.</p>}

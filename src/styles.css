@@ -1276,3 +1276,9 @@ input:focus {
   color: var(--muted);
   font-size: 14px;
 }
+
+.forfeit {
+  display: block;
+  margin: 8px auto 0;
+  color: var(--muted);
+}

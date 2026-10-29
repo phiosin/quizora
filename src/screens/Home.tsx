@@ -5,6 +5,7 @@ import { backend } from '../lib/backend';
 import { describeDifficulty, roundsFor } from '../lib/categories';
 import { claimName, forgetGame, getProfile, myGames, rememberGame } from '../lib/profile';
 import { computeStats, type Stats } from '../lib/stats';
+import { cannotJoin, isActiveFor, MAX_ACTIVE } from '../lib/limits';
 import { sfx } from '../lib/sound';
 import { go } from '../lib/router';
 import type { GameRow } from '../lib/types';
@@ -47,13 +48,15 @@ export default function Home() {
   const [editing, setEditing] = useState(!profile.name);
   const [games, setGames] = useState<GameRow[]>([]);
   const [hidden, setHidden] = useState<Set<string>>(() => new Set(hiddenGames()));
-  const [hello] = useState(() => {
+  const [hello, setHello] = useState<string | null>(null);
+  useEffect(() => {
+    if (editing) return;
     try {
-      return sessionStorage.getItem('quizora:hello');
+      setHello(sessionStorage.getItem('quizora:hello'));
     } catch {
-      return null;
+      /* ignore */
     }
-  });
+  }, [editing]);
 
   // Phones that already had a name: register it once per visit (links same-name profiles across devices)
   useEffect(() => {
@@ -89,7 +92,9 @@ export default function Home() {
           .filter((c) => !known.has(c))
           .map((c) => backend.getGame(c).catch(() => null)),
       );
-      if (alive) setGames([...mine, ...extra.filter((g): g is GameRow => !!g)]);
+      // Only duels this profile actually plays in (a shared phone may remember others)
+      const ok = (g: GameRow | null): g is GameRow => !!g && (g.host_id === profile.id || g.guest_id === profile.id);
+      if (alive) setGames([...mine, ...extra.filter(ok)]);
     })();
     return () => {
       alive = false;
@@ -140,7 +145,12 @@ export default function Home() {
 
       {games.some((g) => g.guest_id && !hidden.has(g.id)) && (
         <>
-          <h3 className="section-title">Your duels</h3>
+          <h3 className="section-title">
+            Your duels{' '}
+            <span className="muted small">
+              · {games.filter((g) => isActiveFor(g, profile.id)).length}/{MAX_ACTIVE} active
+            </span>
+          </h3>
           <div className="game-list">
             {games.filter((g) => g.guest_id && !hidden.has(g.id)).map((g) => {
               const st = matchStatus(g, profile.id);
@@ -304,6 +314,12 @@ function OpenGames({ myId }: { myId: string }) {
     setErr('');
     try {
       const me = getProfile();
+      const why = await cannotJoin(me.id);
+      if (why) {
+        setErr(why);
+        setJoining('');
+        return;
+      }
       const ok = await backend.joinGame(g.id, { guest_id: me.id, guest_name: me.name || 'Player' });
       if (!ok) {
         setErr('Too late, someone else joined that one.');

@@ -5,6 +5,7 @@ import { newCode } from '../lib/codes';
 import { getProfile, rememberGame } from '../lib/profile';
 import { go } from '../lib/router';
 import type { DifficultySetting, Level } from '../lib/types';
+import { cannotOpen } from '../lib/limits';
 import { Logo } from './Home';
 
 export const DIFFICULTY_OPTIONS: { label: string; value: DifficultySetting }[] = [
@@ -37,6 +38,12 @@ export default function NewMatch() {
     setBusy(true);
     setErr('');
     const p = getProfile();
+    const why = await cannotOpen(p.id);
+    if (why) {
+      setErr(why);
+      setBusy(false);
+      return;
+    }
     for (let attempt = 0; attempt < 4; attempt++) {
       const code = newCode();
       try {
