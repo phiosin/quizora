@@ -1,8 +1,10 @@
 import { buildTag } from '../lib/update';
 import { isMuted, setMuted } from '../lib/sound';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { backend } from '../lib/backend';
-import { forgetGame, getProfile, myGames, setName } from '../lib/profile';
+import { describeDifficulty } from '../lib/categories';
+import { forgetGame, getProfile, myGames, rememberGame, setName } from '../lib/profile';
+import { sfx } from '../lib/sound';
 import { go } from '../lib/router';
 import type { GameRow } from '../lib/types';
 import { matchStatus } from './matchStatus';
@@ -68,15 +70,8 @@ export default function Home() {
         <button className="menu-btn pink" onClick={() => go('/new')}>
           <span className="menu-emoji">⚔️</span>
           <span>
-            <strong>New duel</strong>
-            <small>Challenge a friend with a code</small>
-          </span>
-        </button>
-        <button className="menu-btn teal" onClick={() => go('/join')}>
-          <span className="menu-emoji">🔑</span>
-          <span>
-            <strong>Join duel</strong>
-            <small>Got a code or link? Enter it here</small>
+            <strong>Open a game</strong>
+            <small>Anyone on the menu can join you</small>
           </span>
         </button>
         <button className="menu-btn purple" onClick={() => go('/practice')}>
@@ -88,11 +83,13 @@ export default function Home() {
         </button>
       </div>
 
-      {games.length > 0 && (
+      <OpenGames myId={profile.id} />
+
+      {games.some((g) => g.guest_id) && (
         <>
           <h3 className="section-title">Your duels</h3>
           <div className="game-list">
-            {games.map((g) => {
+            {games.filter((g) => g.guest_id).map((g) => {
               const st = matchStatus(g, profile.id);
               return (
                 <div key={g.id} className="game-row" onClick={() => go(`/m/${g.id}`)}>
@@ -119,6 +116,12 @@ export default function Home() {
         </>
       )}
 
+      <p className="center small">
+        <button className="link" onClick={() => go('/join')}>
+          Got a code from a friend?
+        </button>
+      </p>
+
       {backend.mode === 'local' && (
         <p className="notice">Local mode: no server configured, so duels only work inside this browser.</p>
       )}
@@ -128,6 +131,88 @@ export default function Home() {
         <small>build {buildTag()}</small>
       </footer>
     </div>
+  );
+}
+
+/** Live list of games waiting for a second player. */
+function OpenGames({ myId }: { myId: string }) {
+  const [list, setList] = useState<GameRow[] | null>(null);
+  const [joining, setJoining] = useState('');
+  const [err, setErr] = useState('');
+  const known = useRef(new Set<string>());
+
+  useEffect(() => {
+    let alive = true;
+    let first = true;
+    const load = async () => {
+      const rows = await backend.listOpenGames().catch(() => null);
+      if (!alive || !rows) return;
+      // Soft ping when someone else's game pops up
+      if (!first && rows.some((g) => g.host_id !== myId && !known.current.has(g.id))) sfx.theirTurn();
+      rows.forEach((g) => known.current.add(g.id));
+      first = false;
+      setList(rows);
+    };
+    void load();
+    const off = backend.watchOpenGames(() => void load());
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [myId]);
+
+  const join = async (g: GameRow) => {
+    setJoining(g.id);
+    setErr('');
+    try {
+      const me = getProfile();
+      const ok = await backend.joinGame(g.id, { guest_id: me.id, guest_name: me.name || 'Player' });
+      if (!ok) {
+        setErr('Too late, someone else joined that one.');
+        setJoining('');
+        return;
+      }
+      rememberGame(g.id);
+      go(`/m/${g.id}`);
+    } catch (e) {
+      setErr(String((e as Error).message));
+      setJoining('');
+    }
+  };
+
+  return (
+    <>
+      <h3 className="section-title">
+        Open games <span className="live-dot" />
+      </h3>
+      <div className="game-list">
+        {list === null && <p className="muted small center">Looking for games…</p>}
+        {list?.length === 0 && (
+          <p className="muted small center open-empty">No one is waiting right now. Open a game and it appears here for others.</p>
+        )}
+        {list?.map((g) => {
+          const mine = g.host_id === myId;
+          return (
+            <div key={g.id} className={`game-row open-row ${mine ? 'mine' : ''}`} onClick={() => mine && go(`/m/${g.id}`)}>
+              <div>
+                <strong>{mine ? 'Your game' : g.host_name}</strong>
+                <small>
+                  {describeDifficulty(g.settings.difficulty)} · {(g.settings.presets ?? 1) + 2} rounds
+                </small>
+              </div>
+              {mine ? (
+                <span className="status wait">Waiting…</span>
+              ) : (
+                <button className="btn small primary" disabled={!!joining} onClick={() => void join(g)}>
+                  {joining === g.id ? 'Joining…' : 'Join'}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {err && <p className="error center">{err}</p>}
+    </>
   );
 }
 

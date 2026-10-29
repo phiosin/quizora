@@ -254,8 +254,12 @@ export default function MapView({ map, states, showIdle = true, labels, onTap, t
             return (
               <g key={it.id} data-id={it.id} className={cls}>
                 <path d={it.d} fill={color} />
-                {it.dot && (st !== 'idle' || onTap) && (
-                  <circle cx={it.dot[0]} cy={it.dot[1]} r={Math.max(5 * unit, 1.2)} fill={color} className="dot" />
+                {/* Tiny countries: a coloured dot only when highlighted, plus an invisible tap area */}
+                {it.dot && st !== 'idle' && (
+                  <circle cx={it.dot[0]} cy={it.dot[1]} r={Math.max(4 * unit, 1)} fill={color} className="dot" />
+                )}
+                {it.dot && onTap && (
+                  <circle cx={it.dot[0]} cy={it.dot[1]} r={Math.max(10 * unit, 2)} className="dot-hit" />
                 )}
               </g>
             );

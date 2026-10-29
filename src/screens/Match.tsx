@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { backend } from '../lib/backend';
-import { catById, describeDifficulty, LEVEL_NAMES, levelForRound } from '../lib/categories';
+import { CATEGORIES, catById, describeDifficulty, LEVEL_NAMES, levelForRound } from '../lib/categories';
 import { shareLink } from '../lib/codes';
 import { generateRound } from '../lib/generate';
 import { getProfile, rememberGame } from '../lib/profile';
@@ -13,9 +13,9 @@ import { Logo, NameCard } from './Home';
 import { matchStatus, total } from './matchStatus';
 import { CategoryChip } from './NewMatch';
 
-/** Seconds each player gets to veto. */
-const VETO_SECONDS = 10;
-/** Extra wait before vetoing randomly for an opponent who seems to be away. */
+/** Seconds each player gets to pick a category. */
+const PICK_SECONDS = 20;
+/** Extra wait before picking randomly for an opponent who seems to be away. */
 const AWAY_GRACE = 4;
 
 export function useGame(code: string) {
@@ -72,9 +72,20 @@ export default function Match({ code }: { code: string }) {
   if (!g.guest_id) return st.role === 'host' ? <Lobby g={g} /> : <JoinView g={g} onJoined={refresh} />;
   if (!g.rounds) {
     const bothReady = !!g.host_results.ready && !!g.guest_results.ready;
-    // Older duels already had a host veto and skip the rules screen
-    if (!bothReady && !g.host_veto) return <RulesScreen g={g} refresh={refresh} />;
-    return <VetoPhase g={g} refresh={refresh} />;
+    if (!g.settings.presets)
+      return (
+        <Shell>
+          <div className="card center">
+            <h3>Old duel</h3>
+            <p className="muted">This duel was set up with the old veto rules. Please open a new game.</p>
+            <button className="btn primary" onClick={() => go('/new')}>
+              Open a game
+            </button>
+          </div>
+        </Shell>
+      );
+    if (!bothReady) return <RulesScreen g={g} refresh={refresh} />;
+    return <PickPhase g={g} refresh={refresh} />;
   }
   return <Scoreboard g={g} />;
 }
@@ -118,6 +129,23 @@ function Players({ g, turn }: { g: GameRow; turn?: 'host' | 'guest' | null }) {
 
 function Lobby({ g }: { g: GameRow }) {
   const link = shareLink(g.id);
+
+  // Heartbeat: keeps this game in everyone's "Open games" list while you're here
+  const settings = useRef(g.settings);
+  useEffect(() => {
+    const beat = () => void backend.touchGame(g.id, { ...settings.current, seenAt: Date.now() }).catch(() => {});
+    beat();
+    const t = setInterval(beat, 10_000);
+    const onVis = () => document.visibilityState === 'visible' && beat();
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', onVis);
+      // Leaving the lobby takes the game off the list (unless someone just joined)
+      void backend.touchGame(g.id, { ...settings.current, seenAt: 0 }).catch(() => {});
+    };
+  }, [g.id]);
+
   const [copied, setCopied] = useState('');
   const copy = async (text: string, what: string) => {
     try {
@@ -136,7 +164,14 @@ function Lobby({ g }: { g: GameRow }) {
   return (
     <Shell>
       <div className="card center">
-        <div className="muted">Your duel code</div>
+        <div className="intro-emoji">📣</div>
+        <h3>Your game is open</h3>
+        <p className="muted small">
+          It shows up under <strong>Open games</strong> on everyone's menu. The first person to join plays you.
+        </p>
+      </div>
+      <div className="card center">
+        <div className="muted small">Or send a friend the code</div>
         <div className="big-code" onClick={() => copy(g.id, 'code')}>
           {g.id}
         </div>
@@ -154,12 +189,11 @@ function Lobby({ g }: { g: GameRow }) {
         <h3>Lobby</h3>
         <Players g={g} />
         <p className="muted small center">
-          Stay on this screen. When your opponent joins, you take turns vetoing a category, {VETO_SECONDS} seconds
-          each. You go first.
+          Stay on this screen: if you leave, your game disappears from the list.
         </p>
       </div>
       <div className="card">
-        <h3>On offer · {describeDifficulty(g.settings.difficulty)}</h3>
+        <h3>Starting with · {describeDifficulty(g.settings.difficulty)}</h3>
         <div className="cat-list">
           {g.offered.map((id) => (
             <CategoryChip key={id} id={id} />
@@ -209,16 +243,16 @@ function JoinView({ g, onJoined }: { g: GameRow; onJoined: () => Promise<void> }
       <div className="card center">
         <div className="intro-emoji">⚔️</div>
         <h2>{g.host_name} challenges you!</h2>
-        <p className="muted">{describeDifficulty(g.settings.difficulty)} · 3 rounds</p>
+        <p className="muted">
+          {describeDifficulty(g.settings.difficulty)} · {g.offered.length + 2} rounds
+        </p>
       </div>
       <div className="card">
-        <h3>On offer</h3>
-        <p className="muted small">
-          After joining you take turns vetoing one category, {VETO_SECONDS} seconds each. The other 3 get played.
-        </p>
+        <h3>Starting with</h3>
+        <p className="muted small">After joining you each add one category of your choice.</p>
         <div className="cat-list">
           {g.offered.map((id) => (
-            <CategoryChip key={id} id={id} vetoed={g.host_veto === id} />
+            <CategoryChip key={id} id={id} />
           ))}
         </div>
       </div>
@@ -272,12 +306,13 @@ function RulesScreen({ g, refresh }: { g: GameRow; refresh: () => Promise<void> 
         <h3>How this duel works</h3>
         <ol>
           <li>
-            <strong>Veto:</strong> {g.host_name} vetoes one of the 5 categories first, then {g.guest_name}.{' '}
-            {VETO_SECONDS} seconds each, or a random one goes.
+            <strong>Pick:</strong> the match starts with {g.offered.length === 1 ? '1 random category' : `${g.offered.length} random categories`}. Then{' '}
+            {g.host_name} adds one of their choice, then {g.guest_name}. {PICK_SECONDS} seconds each, or a random one is
+            added.
           </li>
           <li>
-            <strong>3 rounds</strong> remain · {describeDifficulty(g.settings.difficulty)}. Both of you get exactly the
-            same questions.
+            <strong>{g.offered.length + 2} rounds</strong> · {describeDifficulty(g.settings.difficulty)}. Both of you get
+            exactly the same questions.
           </li>
           <li>
             <strong>Play whenever you like</strong>, but each round only once: as soon as you press Start, it counts.
@@ -293,7 +328,7 @@ function RulesScreen({ g, refresh }: { g: GameRow; refresh: () => Promise<void> 
         </ol>
       </div>
       <div className="card">
-        <h3>On offer</h3>
+        <h3>Starting with</h3>
         <div className="cat-list">
           {g.offered.map((id) => (
             <CategoryChip key={id} id={id} />
@@ -316,41 +351,48 @@ function RulesScreen({ g, refresh }: { g: GameRow; refresh: () => Promise<void> 
 
 const pickRandom = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
 
-function VetoPhase({ g, refresh }: { g: GameRow; refresh: () => Promise<void> }) {
+/** Each player adds one category to the random starting ones: host first, then guest. */
+function PickPhase({ g, refresh }: { g: GameRow; refresh: () => Promise<void> }) {
   const me = getProfile();
   const { role } = matchStatus(g, me.id);
   const turn: 'host' | 'guest' | null = !g.host_veto ? 'host' : !g.guest_veto ? 'guest' : null;
   const myTurn = turn !== null && turn === role;
   const turnName = turn === 'host' ? g.host_name : g.guest_name;
-  const open = g.offered.filter((c) => c !== g.host_veto && c !== g.guest_veto);
+  const chosen = [...g.offered, ...(g.host_veto ? [g.host_veto] : []), ...(g.guest_veto ? [g.guest_veto] : [])];
+  const available = CATEGORIES.filter((c) => !chosen.includes(c.id)).map((c) => c.id);
+  const totalRounds = g.offered.length + 2;
   const [sending, setSending] = useState(false);
   const [genErr, setGenErr] = useState('');
+  /** Category tapped but not confirmed yet (guards against accidental taps). */
+  const [pending, setPending] = useState<string | null>(null);
+  useEffect(() => setPending(null), [turn]);
 
-  const veto = async (who: 'host' | 'guest', cat: string) => {
+  const pick = async (who: 'host' | 'guest', cat: string) => {
     if (sending) return;
     setSending(true);
-    sfx.veto();
+    sfx.correct();
     try {
-      await backend.setVeto(g.id, who, cat);
+      await backend.setPick(g.id, who, cat);
       await refresh();
     } finally {
       setSending(false);
     }
   };
 
-  // My turn: 10 s, then a random veto. Their turn: wait a bit longer, then veto for them if they're away.
-  const limit = myTurn ? VETO_SECONDS : VETO_SECONDS + AWAY_GRACE;
+  // My turn: PICK_SECONDS, then a random pick. Their turn: wait a bit longer, then pick for them if they're away.
+  const limit = myTurn ? PICK_SECONDS : PICK_SECONDS + AWAY_GRACE;
   const left = useCountdown(
     limit,
     turn !== null && role !== 'none' && !sending,
     () => {
-      if (turn) void veto(turn, pickRandom(open));
+      // Time's up: use the category waiting for confirmation, otherwise a random one
+      if (turn) void pick(turn, myTurn && pending ? pending : pickRandom(available));
     },
     `${turn}-${g.host_veto}-${g.guest_veto}`,
   );
   const shown = Math.max(0, Math.ceil(left - (myTurn ? 0 : AWAY_GRACE)));
 
-  // Sound when a veto turn begins
+  // Sound when a pick turn begins
   useEffect(() => {
     if (!turn || role === 'none') return;
     if (myTurn) sfx.yourTurn();
@@ -364,14 +406,15 @@ function VetoPhase({ g, refresh }: { g: GameRow; refresh: () => Promise<void> })
     lastTick.current = shown;
   }, [myTurn, shown]);
 
-  // Both vetoed: build the rounds. The guest does it right away; the host steps in if that stalls.
+  // Both picked: build the rounds. The guest does it right away; the host steps in if that stalls.
   useEffect(() => {
     if (turn !== null || g.rounds || role === 'none') return;
     let cancelled = false;
     const build = async () => {
       try {
         const rounds: RoundSpec[] = [];
-        for (let i = 0; i < open.length; i++) rounds.push(await generateRound(open[i], levelForRound(g.settings.difficulty, i)));
+        for (let i = 0; i < chosen.length; i++)
+          rounds.push(await generateRound(chosen[i], levelForRound(g.settings.difficulty, i, chosen.length)));
         if (cancelled) return;
         await backend.setRounds(g.id, rounds);
         sfx.start();
@@ -388,31 +431,75 @@ function VetoPhase({ g, refresh }: { g: GameRow; refresh: () => Promise<void> })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [turn, g.rounds, role, genErr === '']);
 
-  const note = (id: string) =>
-    id === g.host_veto ? `${role === 'host' ? 'your' : `${g.host_name}'s`} veto` : id === g.guest_veto ? `${role === 'guest' ? 'your' : `${g.guest_name}'s`} veto` : undefined;
+  const whose = (id: string) =>
+    id === g.host_veto
+      ? role === 'host'
+        ? 'your pick'
+        : `${g.host_name}'s pick`
+      : id === g.guest_veto
+        ? role === 'guest'
+          ? 'your pick'
+          : `${g.guest_name}'s pick`
+        : 'random';
+
+  const groups: { title: string; kind: string }[] = [
+    { title: '🗺️ Maps', kind: 'map' },
+    { title: '🏛️ Capitals', kind: 'capitals' },
+    { title: '❓ Trivia', kind: 'trivia' },
+  ];
 
   return (
     <Shell>
       <div className="card">
         <Players g={g} turn={turn} />
       </div>
+
+      <div className="card">
+        <h3>
+          The match · {chosen.length}/{totalRounds} rounds
+        </h3>
+        <div className="cat-list">
+          {chosen.map((id) => (
+            <CategoryChip key={id} id={id} note={whose(id)} />
+          ))}
+          {Array.from({ length: totalRounds - chosen.length }, (_, i) => (
+            <div key={`slot-${i}`} className="cat-slot">
+              {i === 0 && turn ? `${myTurn ? 'Your' : `${turnName}'s`} pick…` : 'Next pick…'}
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className={`card veto-card ${myTurn ? 'mine' : ''}`}>
         {turn ? (
           <>
             <div className="veto-head">
-              <h3>{myTurn ? 'Your veto!' : `${turnName} is vetoing…`}</h3>
+              <h3>{myTurn ? 'Pick a category!' : `${turnName} is picking…`}</h3>
               <span className={`veto-timer ${shown <= 3 ? 'low' : ''}`}>{shown}s</span>
             </div>
             <div className="veto-bar">
-              <div style={{ width: `${(Math.min(shown, VETO_SECONDS) / VETO_SECONDS) * 100}%` }} />
+              <div style={{ width: `${(Math.min(shown, PICK_SECONDS) / PICK_SECONDS) * 100}%` }} />
             </div>
             <p className="muted small">
               {myTurn
-                ? 'Tap the category you don’t want. If time runs out, a random one is vetoed.'
+                ? 'Tap the category you want to add. If time runs out, a random one is added.'
                 : shown === 0
-                  ? `${turnName} seems away, vetoing a random one…`
-                  : `Wait for ${turnName} to pick.`}
+                  ? `${turnName} seems away, picking a random one…`
+                  : `Wait for ${turnName} to choose.`}
             </p>
+            {myTurn &&
+              groups.map((grp) => (
+                <div key={grp.kind}>
+                  <div className="pick-group">{grp.title}</div>
+                  <div className="cat-grid pick-grid">
+                    {available
+                      .filter((id) => catById(id).kind === grp.kind)
+                      .map((id) => (
+                        <CategoryChip key={id} id={id} onClick={sending ? undefined : () => setPending(id)} />
+                      ))}
+                  </div>
+                </div>
+              ))}
           </>
         ) : (
           <div className="center">
@@ -426,29 +513,37 @@ function VetoPhase({ g, refresh }: { g: GameRow; refresh: () => Promise<void> })
               </>
             ) : (
               <p className="waiting">
-                <span className="pulse" /> Getting the 3 rounds ready
+                <span className="pulse" /> Getting the {totalRounds} rounds ready
               </p>
             )}
           </div>
         )}
-        <div className="cat-list">
-          {g.offered.map((id) => {
-            const gone = id === g.host_veto || id === g.guest_veto;
-            return (
-              <CategoryChip
-                key={id}
-                id={id}
-                vetoed={gone}
-                note={note(id)}
-                onClick={myTurn && !gone && !sending ? () => void veto(role as 'host' | 'guest', id) : undefined}
-              />
-            );
-          })}
-        </div>
       </div>
       <p className="muted center small">
         {describeDifficulty(g.settings.difficulty)} · Code: {g.id}
       </p>
+      {myTurn && pending && (
+        <div className="confirm-backdrop" onClick={() => setPending(null)}>
+          <div className="confirm" onClick={(e) => e.stopPropagation()}>
+            <div className="intro-emoji">{catById(pending).emoji}</div>
+            <h3>Add {catById(pending).name}?</h3>
+            <span className={`veto-timer ${shown <= 3 ? 'low' : ''}`}>{shown}s</span>
+            <div className="row-gap">
+              <button className="btn ghost" onClick={() => setPending(null)}>
+                Back
+              </button>
+              <button
+                className="btn primary"
+                data-sfx="off"
+                disabled={sending}
+                onClick={() => void pick(role as 'host' | 'guest', pending)}
+              >
+                ✓ Add it
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Shell>
   );
 }

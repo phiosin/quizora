@@ -60,9 +60,23 @@ export function randomOffer(): string[] {
   return shuffle([...maps, ...rest]).map((c) => c.id);
 }
 
-export function levelForRound(setting: DifficultySetting, round: number): Level {
+/** Match length: how many categories are set at random before each player adds one. */
+export type Format = 1 | 3;
+export const roundsFor = (presets: number) => presets + 2;
+
+/** Random starting categories; with 3, at least one is a map. */
+export function randomPresets(n: Format): string[] {
+  if (n === 1) return [shuffle(CATEGORIES)[0].id];
+  const map = shuffle(CATEGORIES.filter((c) => c.kind === 'map'))[0];
+  const rest = shuffle(CATEGORIES.filter((c) => c !== map)).slice(0, n - 1);
+  return shuffle([map, ...rest]).map((c) => c.id);
+}
+
+/** Rising difficulty climbs two levels over the match, however many rounds it has. */
+export function levelForRound(setting: DifficultySetting, round: number, total = 3): Level {
   if (setting.kind === 'fixed') return setting.level;
-  return Math.min(4, setting.start + round) as Level;
+  const step = total <= 1 ? 0 : Math.floor((round * 2) / (total - 1) + 0.25);
+  return Math.min(4, setting.start + step) as Level;
 }
 
 export function describeDifficulty(s: DifficultySetting): string {

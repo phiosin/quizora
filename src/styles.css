@@ -692,9 +692,13 @@ input:focus {
   transition: fill 0.25s;
 }
 .map-item .dot {
-  stroke: #fff;
-  stroke-width: 1;
+  stroke: #14112a;
+  stroke-width: 0.7;
   vector-effect: non-scaling-stroke;
+}
+.map-item .dot-hit {
+  fill: transparent;
+  stroke: none;
 }
 .map-item .hit {
   fill: none;
@@ -1123,4 +1127,94 @@ input:focus {
   bottom: calc(12px + env(safe-area-inset-bottom));
   z-index: 5;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+}
+
+/* ---------- open games ---------- */
+.live-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--teal);
+  margin-left: 6px;
+  vertical-align: middle;
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  50% {
+    opacity: 0.3;
+  }
+}
+.open-row {
+  animation: race-in 0.35s ease-out;
+}
+.open-row.mine {
+  border-color: var(--yellow);
+}
+.open-empty {
+  padding: 14px 8px;
+  border: 2px dashed var(--line);
+  border-radius: 14px;
+  margin: 0;
+}
+
+/* ---------- picking ---------- */
+.cat-slot {
+  min-height: 56px;
+  border-radius: 14px;
+  border: 2px dashed var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-weight: 700;
+}
+.pick-group {
+  font-weight: 800;
+  margin: 12px 0 6px;
+  color: var(--muted);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.pick-grid {
+  display: grid;
+  gap: 8px;
+}
+.pick-grid .cat-chip {
+  min-height: 48px;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+.pick-grid .cat-emoji {
+  font-size: 20px;
+}
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(10, 8, 25, 0.7);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px 16px calc(24px + env(safe-area-inset-bottom));
+  animation: race-in 0.15s ease-out;
+}
+.confirm {
+  width: 100%;
+  max-width: 420px;
+  background: var(--card);
+  border: 2px solid var(--yellow);
+  border-radius: var(--radius);
+  padding: 18px;
+  text-align: center;
+}
+.confirm h3 {
+  margin: 4px 0;
+}
+.confirm .row-gap {
+  margin-top: 12px;
+}
+.confirm .btn {
+  flex: 1;
 }

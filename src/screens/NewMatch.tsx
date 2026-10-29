@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { backend } from '../lib/backend';
-import { catById, LEVEL_NAMES, randomOffer } from '../lib/categories';
+import { catById, LEVEL_NAMES, randomPresets, roundsFor, type Format } from '../lib/categories';
 import { newCode } from '../lib/codes';
 import { getProfile, rememberGame } from '../lib/profile';
 import { go } from '../lib/router';
@@ -27,7 +27,8 @@ export function CategoryChip({ id, vetoed, onClick, note }: { id: string; vetoed
 
 export default function NewMatch() {
   const [diff, setDiff] = useState(0);
-  const [offer, setOffer] = useState(randomOffer);
+  const [format, setFormat] = useState<Format>(1);
+  const [offer, setOffer] = useState(() => randomPresets(1));
   const [rerolls, setRerolls] = useState(2);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -45,7 +46,7 @@ export default function NewMatch() {
           host_name: p.name || 'Player',
           guest_id: null,
           guest_name: null,
-          settings: { difficulty: DIFFICULTY_OPTIONS[diff].value },
+          settings: { difficulty: DIFFICULTY_OPTIONS[diff].value, seenAt: Date.now(), presets: format },
           offered: offer,
           host_veto: null,
           guest_veto: null,
@@ -72,7 +73,25 @@ export default function NewMatch() {
       <h2>New duel</h2>
 
       <div className="card">
-        <h3>1 · Difficulty</h3>
+        <h3>1 · Length</h3>
+        <div className="seg">
+          {([1, 3] as Format[]).map((f) => (
+            <button
+              key={f}
+              className={f === format ? 'on' : ''}
+              onClick={() => {
+                setFormat(f);
+                setOffer(randomPresets(f));
+              }}
+            >
+              {f === 1 ? 'Short · 3 rounds' : 'Long · 5 rounds'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="card">
+        <h3>2 · Difficulty</h3>
         <div className="seg">
           {DIFFICULTY_OPTIONS.map((o, i) => (
             <button key={o.label} className={i === diff ? 'on' : ''} onClick={() => setDiff(i)}>
@@ -84,12 +103,12 @@ export default function NewMatch() {
 
       <div className="card">
         <div className="row-between">
-          <h3>2 · Categories on offer</h3>
+          <h3>3 · Starting {format === 1 ? 'category' : 'categories'}</h3>
           <button
             className="btn small ghost"
             disabled={rerolls === 0}
             onClick={() => {
-              setOffer(randomOffer());
+              setOffer(randomPresets(format));
               setRerolls(rerolls - 1);
             }}
           >
@@ -97,8 +116,8 @@ export default function NewMatch() {
           </button>
         </div>
         <p className="muted">
-          Once your opponent joins, you each veto one category, taking turns with 10 seconds each. The remaining 3 are
-          played.
+          Picked at random. Once your opponent joins, you each add one category of your choice, so the match has{' '}
+          {roundsFor(format)} rounds.
         </p>
         <div className="cat-list">
           {offer.map((id) => (
@@ -109,7 +128,7 @@ export default function NewMatch() {
 
       {err && <p className="error">{err}</p>}
       <button className="btn primary wide big" disabled={busy} onClick={create}>
-        {busy ? 'Creating…' : 'Create lobby & get code'}
+        {busy ? 'Creating…' : 'Open game'}
       </button>
     </div>
   );

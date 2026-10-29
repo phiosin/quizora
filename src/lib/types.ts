@@ -47,7 +47,9 @@ export interface GameRow {
   host_name: string;
   guest_id: string | null;
   guest_name: string | null;
-  settings: { difficulty: DifficultySetting };
+  /** seenAt: last heartbeat (ms) from the host's lobby; 0 once they leave it. */
+  /** presets: how many random categories the match starts with (each player then adds one). */
+  settings: { difficulty: DifficultySetting; seenAt?: number; presets?: number };
   offered: string[];
   host_veto: string | null;
   guest_veto: string | null;

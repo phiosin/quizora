@@ -1,4 +1,4 @@
-import { ROUNDS_PER_MATCH } from '../lib/categories';
+import { ROUNDS_PER_MATCH, roundsFor } from '../lib/categories';
 import type { GameRow, Results } from '../lib/types';
 
 export const doneCount = (r: Results) => Object.values(r).filter((x) => x.status === 'done' || x.status === 'started').length;
@@ -9,15 +9,16 @@ export function matchStatus(g: GameRow, me: string) {
   const opponent = role === 'host' ? g.guest_name : g.host_name;
   const mine = role === 'guest' ? g.guest_results : g.host_results;
   const theirs = role === 'guest' ? g.host_results : g.guest_results;
-  const myDone = doneCount(mine) >= ROUNDS_PER_MATCH;
-  const theirDone = doneCount(theirs) >= ROUNDS_PER_MATCH;
+  const count = g.rounds?.length ?? (g.settings.presets ? roundsFor(g.settings.presets) : ROUNDS_PER_MATCH);
+  const myDone = doneCount(mine) >= count;
+  const theirDone = doneCount(theirs) >= count;
   let label = '';
   let tone = '';
   if (!g.guest_id) {
     label = role === 'host' ? 'Waiting for opponent' : 'Open';
     tone = 'wait';
   } else if (!g.rounds) {
-    label = 'Vetoing…';
+    label = 'Picking…';
     tone = 'turn';
   } else if (myDone && theirDone) {
     const a = total(mine),
