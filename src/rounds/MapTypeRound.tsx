@@ -93,7 +93,7 @@ export default function MapTypeRound({ spec, map, onEnd, onContinue }: Props) {
           </button>
         )}
       </div>
-      <MapView map={map} states={states} labels={labels} showIdle={map.kind === 'line'} />
+      <MapView map={map} states={states} labels={labels} focus={spec.items} />
       {result ? (
         <div className="round-foot">
           <div className="result-line">

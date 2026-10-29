@@ -685,7 +685,7 @@ input:focus {
   vector-effect: non-scaling-stroke;
   opacity: 0.6;
 }
-.map-item > path:not(.hit) {
+.map-item.area > path {
   stroke: #14112a;
   stroke-width: 0.7;
   vector-effect: non-scaling-stroke;

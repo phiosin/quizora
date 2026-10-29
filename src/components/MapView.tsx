@@ -12,6 +12,8 @@ interface Props {
   onTap?: (id: string) => void;
   /** Ids that react to taps; defaults to all drawn items. */
   tappable?: (id: string) => boolean;
+  /** Zoom to these items when the map first shows. */
+  focus?: string[];
 }
 
 const FILL: Record<ItemState, string> = {
@@ -31,7 +33,7 @@ interface View {
   y: number;
 }
 
-export default function MapView({ map, states, showIdle = true, labels, onTap, tappable }: Props) {
+export default function MapView({ map, states, showIdle = true, labels, onTap, tappable, focus }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [view, setView] = useState<View>({ k: 1, x: 0, y: 0 });
   const viewRef = useRef(view);
@@ -49,13 +51,58 @@ export default function MapView({ map, states, showIdle = true, labels, onTap, t
     return () => ro.disconnect();
   }, [w, h]);
 
+  /** Visible area in viewBox units (bigger than w×h when the map is letterboxed). */
+  const visible = () => {
+    const r = svgRef.current?.getBoundingClientRect();
+    if (!r || !r.width) return { vw: w, vh: h };
+    const s = Math.min(r.width / w, r.height / h);
+    return { vw: r.width / s, vh: r.height / s };
+  };
+
   const clamp = useCallback(
     (v: View): View => {
       const k = Math.min(16, Math.max(1, v.k));
-      return { k, x: Math.min(0, Math.max(w - w * k, v.x)), y: Math.min(0, Math.max(h - h * k, v.y)) };
+      const { vw, vh } = visible();
+      const axis = (pos: number, size: number, vis: number) => {
+        const content = size * k;
+        const lo = -(vis - size) / 2; // left/top edge of visible area
+        if (content <= vis) return Math.min(Math.max(pos, lo), lo + vis - content);
+        return Math.min(lo, Math.max(lo + vis - content, pos));
+      };
+      return { k, x: axis(v.x, w, vw), y: axis(v.y, h, vh) };
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [w, h],
   );
+
+  // Start zoomed in on the focus items (e.g. the red ones)
+  const focusKey = (focus ?? []).join(',');
+  useLayoutEffect(() => {
+    if (!focus?.length || !svgRef.current) return;
+    let x0 = Infinity,
+      y0 = Infinity,
+      x1 = -Infinity,
+      y1 = -Infinity;
+    for (const id of focus) {
+      const el = svgRef.current.querySelector<SVGGraphicsElement>(`[data-id="${id}"]`);
+      if (!el) continue;
+      const b = el.getBBox();
+      x0 = Math.min(x0, b.x);
+      y0 = Math.min(y0, b.y);
+      x1 = Math.max(x1, b.x + b.width);
+      y1 = Math.max(y1, b.y + b.height);
+    }
+    if (!isFinite(x0)) return;
+    const { vw, vh } = visible();
+    const pad = 0.12;
+    const bw = Math.max(x1 - x0, w * 0.08) * (1 + pad * 2),
+      bh = Math.max(y1 - y0, h * 0.08) * (1 + pad * 2);
+    const k = Math.min(8, Math.max(1, Math.min(vw / bw, vh / bh)));
+    const cx = (x0 + x1) / 2,
+      cy = (y0 + y1) / 2;
+    setView(clamp({ k, x: w / 2 - cx * k, y: h / 2 - cy * k }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusKey]);
 
   /** Screen point → viewBox coordinates. */
   const toLocal = (cx: number, cy: number) => {
@@ -156,7 +203,7 @@ export default function MapView({ map, states, showIdle = true, labels, onTap, t
           {drawn.map((it) => {
             const st = states[it.id] ?? 'idle';
             const color = FILL[st];
-            const cls = `map-item st-${st}${onTap ? ' tappable' : ''}`;
+            const cls = `map-item ${line ? 'line' : 'area'} st-${st}${onTap ? ' tappable' : ''}`;
             if (line) {
               return (
                 <g key={it.id} data-id={it.id} className={cls}>
@@ -207,7 +254,7 @@ export default function MapView({ map, states, showIdle = true, labels, onTap, t
           −
         </button>
         {view.k > 1 && (
-          <button aria-label="Reset zoom" onClick={() => setView({ k: 1, x: 0, y: 0 })}>
+          <button aria-label="Reset zoom" onClick={() => setView(clamp({ k: 1, x: 0, y: 0 }))}>
             ⤢
           </button>
         )}

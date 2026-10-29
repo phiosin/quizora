@@ -50,7 +50,7 @@ export default function RoundPlayer({ spec, title, onStart, onEnd, onContinue, o
                 ? `${spec.questions.length} questions`
                 : spec.type === 'map-type'
                   ? `Name ${spec.items.length} highlighted ${map?.kind === 'line' ? 'rivers' : 'places'}`
-                  : `Find ${spec.items.length} places on the map`}
+                  : `Find ${spec.items.length} ${map?.kind === 'line' ? 'rivers' : 'places'} on the map`}
             </strong>
             <br />
             {HOW[spec.type]}

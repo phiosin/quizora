@@ -13,7 +13,7 @@ export interface Category {
 }
 
 export const CATEGORIES: Category[] = [
-  { id: 'map-us', name: 'US States', emoji: '🇺🇸', kind: 'map', map: 'us-states' },
+  { id: 'map-us', name: 'US States', emoji: '🦅', kind: 'map', map: 'us-states' },
   { id: 'map-europe', name: 'European Countries', emoji: '🏰', kind: 'map', map: 'europe-countries' },
   { id: 'map-world', name: 'World Countries', emoji: '🌍', kind: 'map', map: 'world-countries' },
   { id: 'map-africa', name: 'African Countries', emoji: '🦁', kind: 'map', map: 'africa-countries' },
