@@ -40,6 +40,14 @@ export interface RoundResult {
 
 export type Results = Record<string, RoundResult>;
 
+export interface Player {
+  id: string;
+  name: string;
+  name_key: string;
+  created_at?: string;
+  last_seen?: string;
+}
+
 export interface GameRow {
   id: string;
   created_at?: string;
@@ -49,7 +57,8 @@ export interface GameRow {
   guest_name: string | null;
   /** seenAt: last heartbeat (ms) from the host's lobby; 0 once they leave it. */
   /** presets: how many random categories the match starts with (each player then adds one). */
-  settings: { difficulty: DifficultySetting; seenAt?: number; presets?: number };
+  /** picks: categories each player adds (stored comma-separated in host_veto / guest_veto). */
+  settings: { difficulty: DifficultySetting; seenAt?: number; presets?: number; picks?: number };
   offered: string[];
   host_veto: string | null;
   guest_veto: string | null;

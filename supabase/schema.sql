@@ -29,3 +29,19 @@ create policy "games update" on public.games for update using (true);
 do $$ begin
   alter publication supabase_realtime add table public.games;
 exception when duplicate_object then null; end $$;
+
+-- Player profiles (added later): one row per nickname, shared across devices.
+create table if not exists public.players (
+  id         text primary key,
+  name       text not null,
+  name_key   text not null unique,
+  created_at timestamptz not null default now(),
+  last_seen  timestamptz not null default now()
+);
+alter table public.players enable row level security;
+drop policy if exists "players read" on public.players;
+drop policy if exists "players insert" on public.players;
+drop policy if exists "players update" on public.players;
+create policy "players read"   on public.players for select using (true);
+create policy "players insert" on public.players for insert with check (true);
+create policy "players update" on public.players for update using (true);

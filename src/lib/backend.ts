@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import type { GameRow, Results, RoundSpec } from './types';
+import type { GameRow, Player, Results, RoundSpec } from './types';
 
 export interface Backend {
   mode: 'online' | 'local';
@@ -19,6 +19,32 @@ export interface Backend {
   watchOpenGames(cb: () => void): () => void;
   /** Host heartbeat while in the lobby, so the game shows as open. */
   touchGame(id: string, settings: GameRow['settings']): Promise<void>;
+  /** Saves a pick list unless someone changed it since `prev` (race-safe). */
+  setPicks(id: string, role: 'host' | 'guest', value: string, prev: string | null): Promise<boolean>;
+
+  // ---- players (null = profiles not available, e.g. table not created yet) ----
+  findPlayer(by: { id?: string; nameKey?: string }): Promise<Player | null | undefined>;
+  savePlayer(p: Player): Promise<boolean>;
+  /** Moves games from an anonymous device id to a profile. */
+  moveGames(fromId: string, toId: string): Promise<void>;
+  /** Games this player took part in (newest first). */
+  gamesOf(playerId: string): Promise<GameRow[]>;
+  /** Light rows of all recent games, for stats. */
+  allGames(): Promise<GameRow[]>;
+  listPlayers(): Promise<Player[]>;
+}
+
+export const nameKey = (name: string) => name.trim().toLowerCase().replace(/s+/g, ' ');
+// Light rows skip the (big) rounds; r0 only tells whether rounds exist.
+const LIGHT =
+  'id,created_at,host_id,host_name,guest_id,guest_name,settings,offered,host_veto,guest_veto,host_results,guest_results,r0:rounds->0->>type';
+/** Light rows get placeholder rounds of the right length, enough for status and stats. */
+function lightRows(data: unknown[] | null): GameRow[] {
+  return ((data ?? []) as (GameRow & { r0?: string | null })[]).map(({ r0, ...g }) => {
+    const s = g.settings;
+    const count = s.presets !== undefined ? s.presets + 2 * (s.picks ?? 1) : 3;
+    return { ...g, rounds: r0 ? (Array.from({ length: count }) as RoundSpec[]) : null };
+  });
 }
 
 /** A lobby counts as open while its host has been seen recently. */
@@ -65,13 +91,13 @@ function supabaseBackend(sb: SupabaseClient): Backend {
     async listOpenGames() {
       const since = new Date(Date.now() - 3 * 3600_000).toISOString();
       const { data, error } = await table()
-        .select('id,created_at,host_id,host_name,guest_id,guest_name,settings,offered,host_veto,guest_veto,host_results,guest_results')
+        .select(LIGHT)
         .is('guest_id', null)
         .gte('created_at', since)
         .order('created_at', { ascending: false })
         .limit(40);
       if (error) throw new Error(error.message);
-      return ((data ?? []) as GameRow[]).filter(isOpen);
+      return lightRows(data).filter(isOpen);
     },
     watchOpenGames(cb) {
       const ch = sb
@@ -86,6 +112,54 @@ function supabaseBackend(sb: SupabaseClient): Backend {
     },
     async touchGame(id, settings) {
       await table().update({ settings }).eq('id', id).is('guest_id', null);
+    },
+    async setPicks(id, role, value, prev) {
+      const col = role === 'host' ? 'host_veto' : 'guest_veto';
+      let q = table().update({ [col]: value }).eq('id', id);
+      q = prev === null ? q.is(col, null) : q.eq(col, prev);
+      const { data, error } = await q.select('id');
+      if (error) throw new Error(error.message);
+      return !!data?.length;
+    },
+    async findPlayer(by) {
+      let q = sb.from('players').select('*');
+      q = by.id ? q.eq('id', by.id) : q.eq('name_key', by.nameKey ?? '');
+      const { data, error } = await q.maybeSingle();
+      if (error) return undefined; // table missing or offline: profiles unavailable
+      return (data as Player) ?? null;
+    },
+    async savePlayer(p) {
+      const { error } = await sb
+        .from('players')
+        .upsert({ ...p, last_seen: new Date().toISOString() }, { onConflict: 'id' });
+      return !error;
+    },
+    async moveGames(fromId, toId) {
+      await table().update({ host_id: toId }).eq('host_id', fromId);
+      await table().update({ guest_id: toId }).eq('guest_id', fromId);
+    },
+    async gamesOf(playerId) {
+      const { data, error } = await table()
+        .select(LIGHT)
+        .or(`host_id.eq.${playerId},guest_id.eq.${playerId}`)
+        .order('created_at', { ascending: false })
+        .limit(40);
+      if (error) throw new Error(error.message);
+      return lightRows(data);
+    },
+    async allGames() {
+      const { data, error } = await table()
+        .select(LIGHT)
+        .not('guest_id', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1000);
+      if (error) throw new Error(error.message);
+      return lightRows(data);
+    },
+    async listPlayers() {
+      const { data, error } = await sb.from('players').select('*').order('last_seen', { ascending: false });
+      if (error) return [];
+      return (data ?? []) as Player[];
     },
     subscribe(id, cb) {
       let stopped = false;
@@ -186,6 +260,42 @@ function localBackend(): Backend {
       if (!db[id] || db[id].guest_id) return;
       db[id] = { ...db[id], settings };
       save(db);
+    },
+    async setPicks(id, role, value, prev) {
+      const db = all();
+      const col = role === 'host' ? 'host_veto' : 'guest_veto';
+      if (!db[id] || (db[id][col] ?? null) !== prev) return false;
+      db[id] = { ...db[id], [col]: value };
+      save(db);
+      return true;
+    },
+    async findPlayer(by) {
+      const ps: Player[] = JSON.parse(localStorage.getItem('quizora:local-players') || '[]');
+      return ps.find((p) => (by.id ? p.id === by.id : p.name_key === by.nameKey)) ?? null;
+    },
+    async savePlayer(p) {
+      const ps: Player[] = JSON.parse(localStorage.getItem('quizora:local-players') || '[]');
+      localStorage.setItem('quizora:local-players', JSON.stringify([...ps.filter((x) => x.id !== p.id), p]));
+      return true;
+    },
+    async moveGames(fromId, toId) {
+      const db = all();
+      for (const g of Object.values(db)) {
+        if (g.host_id === fromId) g.host_id = toId;
+        if (g.guest_id === fromId) g.guest_id = toId;
+      }
+      save(db);
+    },
+    async gamesOf(playerId) {
+      return Object.values(all())
+        .filter((g) => g.host_id === playerId || g.guest_id === playerId)
+        .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
+    },
+    async allGames() {
+      return Object.values(all()).filter((g) => g.guest_id);
+    },
+    async listPlayers() {
+      return JSON.parse(localStorage.getItem('quizora:local-players') || '[]');
     },
     subscribe(id, cb) {
       const fire = () => {

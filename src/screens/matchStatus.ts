@@ -9,7 +9,9 @@ export function matchStatus(g: GameRow, me: string) {
   const opponent = role === 'host' ? g.guest_name : g.host_name;
   const mine = role === 'guest' ? g.guest_results : g.host_results;
   const theirs = role === 'guest' ? g.host_results : g.guest_results;
-  const count = g.rounds?.length ?? (g.settings.presets ? roundsFor(g.settings.presets) : ROUNDS_PER_MATCH);
+  const count =
+    g.rounds?.length ??
+    (g.settings.presets !== undefined ? roundsFor(g.settings.presets, g.settings.picks ?? 1) : ROUNDS_PER_MATCH);
   const myDone = doneCount(mine) >= count;
   const theirDone = doneCount(theirs) >= count;
   let label = '';

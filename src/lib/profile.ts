@@ -53,3 +53,34 @@ export function rememberGame(code: string) {
 export function forgetGame(code: string) {
   write(GAMES_KEY, myGames().filter((g) => g.code !== code));
 }
+
+/**
+ * Sets the nickname and links this device to that player's profile.
+ * - Name already used (on any device) → this device becomes that player (stats included).
+ * - New name → creates a profile (or renames this device's own profile).
+ * Profiles are trust-based: there are no passwords.
+ */
+export async function claimName(raw: string): Promise<'welcome-back' | 'new' | 'renamed' | 'offline'> {
+  // Imported lazily so this module stays free of the backend at load time
+  const { backend, nameKey } = await import('./backend');
+  const name = raw.trim().slice(0, 20);
+  const key = nameKey(name);
+  const me = getProfile();
+  const owner = await backend.findPlayer({ nameKey: key });
+  if (owner === undefined) {
+    setName(name);
+    return 'offline';
+  }
+  if (owner && owner.id !== me.id) {
+    // Someone with this name exists: take over that profile on this device
+    const mine = await backend.findPlayer({ id: me.id });
+    if (!mine) await backend.moveGames(me.id, owner.id).catch(() => {}); // carry over games from before profiles
+    write(KEY, { id: owner.id, name: owner.name });
+    await backend.savePlayer({ id: owner.id, name: owner.name, name_key: owner.name_key });
+    return 'welcome-back';
+  }
+  const existed = await backend.findPlayer({ id: me.id });
+  setName(name);
+  await backend.savePlayer({ id: me.id, name, name_key: key });
+  return existed && existed.name_key !== key ? 'renamed' : owner ? 'welcome-back' : 'new';
+}

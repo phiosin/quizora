@@ -1218,3 +1218,61 @@ input:focus {
 .confirm .btn {
   flex: 1;
 }
+
+/* ---------- profile / leaderboard ---------- */
+.me-card {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  text-align: center;
+  gap: 4px;
+  margin-top: 14px;
+}
+.me-stat strong {
+  display: block;
+  font-family: 'Fredoka', sans-serif;
+  font-size: 24px;
+}
+.me-stat small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.me-stat.win strong {
+  color: var(--teal);
+}
+.me-stat.lose strong {
+  color: var(--pink);
+}
+.board {
+  padding: 6px 12px;
+}
+.board-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.board-row:last-child {
+  border-bottom: 0;
+}
+.board-row.me .board-name {
+  color: var(--yellow);
+}
+.board-rank {
+  width: 26px;
+  text-align: center;
+  font-weight: 800;
+  color: var(--muted);
+}
+.board-name {
+  flex: 1;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board-rec {
+  font-weight: 700;
+  color: var(--muted);
+  font-size: 14px;
+}

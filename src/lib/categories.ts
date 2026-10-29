@@ -60,12 +60,23 @@ export function randomOffer(): string[] {
   return shuffle([...maps, ...rest]).map((c) => c.id);
 }
 
-/** Match length: how many categories are set at random before each player adds one. */
-export type Format = 1 | 3;
-export const roundsFor = (presets: number) => presets + 2;
+/** Match formats: random starting categories, then each player picks some. */
+export interface Format {
+  id: 'fair' | 'short' | 'long';
+  label: string;
+  presets: number;
+  picks: number;
+}
+export const FORMATS: Format[] = [
+  { id: 'fair', label: 'Fair · 4 rounds', presets: 0, picks: 2 },
+  { id: 'short', label: 'Short · 3 rounds', presets: 1, picks: 1 },
+  { id: 'long', label: 'Long · 5 rounds', presets: 3, picks: 1 },
+];
+export const roundsFor = (presets: number, picks = 1) => presets + 2 * picks;
 
 /** Random starting categories; with 3, at least one is a map. */
-export function randomPresets(n: Format): string[] {
+export function randomPresets(n: number): string[] {
+  if (n <= 0) return [];
   if (n === 1) return [shuffle(CATEGORIES)[0].id];
   const map = shuffle(CATEGORIES.filter((c) => c.kind === 'map'))[0];
   const rest = shuffle(CATEGORIES.filter((c) => c !== map)).slice(0, n - 1);

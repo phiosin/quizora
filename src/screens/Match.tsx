@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { backend } from '../lib/backend';
-import { CATEGORIES, catById, describeDifficulty, LEVEL_NAMES, levelForRound } from '../lib/categories';
+import { CATEGORIES, catById, describeDifficulty, LEVEL_NAMES, levelForRound, roundsFor } from '../lib/categories';
 import { shareLink } from '../lib/codes';
 import { generateRound } from '../lib/generate';
 import { getProfile, rememberGame } from '../lib/profile';
@@ -72,7 +72,7 @@ export default function Match({ code }: { code: string }) {
   if (!g.guest_id) return st.role === 'host' ? <Lobby g={g} /> : <JoinView g={g} onJoined={refresh} />;
   if (!g.rounds) {
     const bothReady = !!g.host_results.ready && !!g.guest_results.ready;
-    if (!g.settings.presets)
+    if (g.settings.presets === undefined)
       return (
         <Shell>
           <div className="card center">
@@ -192,7 +192,7 @@ function Lobby({ g }: { g: GameRow }) {
           Stay on this screen: if you leave, your game disappears from the list.
         </p>
       </div>
-      <div className="card">
+      <div className="card" style={{ display: g.offered.length ? undefined : 'none' }}>
         <h3>Starting with · {describeDifficulty(g.settings.difficulty)}</h3>
         <div className="cat-list">
           {g.offered.map((id) => (
@@ -244,10 +244,10 @@ function JoinView({ g, onJoined }: { g: GameRow; onJoined: () => Promise<void> }
         <div className="intro-emoji">⚔️</div>
         <h2>{g.host_name} challenges you!</h2>
         <p className="muted">
-          {describeDifficulty(g.settings.difficulty)} · {g.offered.length + 2} rounds
+          {describeDifficulty(g.settings.difficulty)} · {roundCount(g)} rounds
         </p>
       </div>
-      <div className="card">
+      <div className="card" style={{ display: g.offered.length ? undefined : 'none' }}>
         <h3>Starting with</h3>
         <p className="muted small">After joining you each add one category of your choice.</p>
         <div className="cat-list">
@@ -306,12 +306,14 @@ function RulesScreen({ g, refresh }: { g: GameRow; refresh: () => Promise<void> 
         <h3>How this duel works</h3>
         <ol>
           <li>
-            <strong>Pick:</strong> the match starts with {g.offered.length === 1 ? '1 random category' : `${g.offered.length} random categories`}. Then{' '}
-            {g.host_name} adds one of their choice, then {g.guest_name}. {PICK_SECONDS} seconds each, or a random one is
-            added.
+            <strong>Pick:</strong>{' '}
+            {g.offered.length === 0
+              ? `nothing is random: you take turns picking ${picksEach(g)} categories each, ${g.host_name} first.`
+              : `the match starts with ${g.offered.length === 1 ? '1 random category' : `${g.offered.length} random categories`}. Then ${g.host_name} adds one of their choice, then ${g.guest_name}.`}{' '}
+            {PICK_SECONDS} seconds per pick, or a random one is added.
           </li>
           <li>
-            <strong>{g.offered.length + 2} rounds</strong> · {describeDifficulty(g.settings.difficulty)}. Both of you get
+            <strong>{roundCount(g)} rounds</strong> · {describeDifficulty(g.settings.difficulty)}. Both of you get
             exactly the same questions.
           </li>
           <li>
@@ -327,7 +329,7 @@ function RulesScreen({ g, refresh }: { g: GameRow; refresh: () => Promise<void> 
           <li>You only see your opponent's score for a round after playing it yourself. Most points wins!</li>
         </ol>
       </div>
-      <div className="card">
+      <div className="card" style={{ display: g.offered.length ? undefined : 'none' }}>
         <h3>Starting with</h3>
         <div className="cat-list">
           {g.offered.map((id) => (
@@ -351,16 +353,41 @@ function RulesScreen({ g, refresh }: { g: GameRow; refresh: () => Promise<void> 
 
 const pickRandom = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
 
+/** A player's picks, stored comma-separated in host_veto / guest_veto. */
+const picksOf = (v: string | null) => (v ? v.split(',').filter(Boolean) : []);
+const picksEach = (g: GameRow) => g.settings.picks ?? 1;
+const roundCount = (g: GameRow) => roundsFor(g.offered.length, picksEach(g));
+/** Whose turn it is: host and guest alternate, host first. */
+function pickTurn(g: GameRow): 'host' | 'guest' | null {
+  const h = picksOf(g.host_veto).length;
+  const a = picksOf(g.guest_veto).length;
+  const n = picksEach(g);
+  if (h <= a && h < n) return 'host';
+  if (a < n) return 'guest';
+  return null;
+}
+/** All categories of the match in play order: random ones, then picks alternating host/guest. */
+function matchCategories(g: GameRow): string[] {
+  const h = picksOf(g.host_veto);
+  const a = picksOf(g.guest_veto);
+  const out = [...g.offered];
+  for (let i = 0; i < Math.max(h.length, a.length); i++) {
+    if (h[i]) out.push(h[i]);
+    if (a[i]) out.push(a[i]);
+  }
+  return out;
+}
+
 /** Each player adds one category to the random starting ones: host first, then guest. */
 function PickPhase({ g, refresh }: { g: GameRow; refresh: () => Promise<void> }) {
   const me = getProfile();
   const { role } = matchStatus(g, me.id);
-  const turn: 'host' | 'guest' | null = !g.host_veto ? 'host' : !g.guest_veto ? 'guest' : null;
+  const turn = pickTurn(g);
   const myTurn = turn !== null && turn === role;
   const turnName = turn === 'host' ? g.host_name : g.guest_name;
-  const chosen = [...g.offered, ...(g.host_veto ? [g.host_veto] : []), ...(g.guest_veto ? [g.guest_veto] : [])];
+  const chosen = matchCategories(g);
   const available = CATEGORIES.filter((c) => !chosen.includes(c.id)).map((c) => c.id);
-  const totalRounds = g.offered.length + 2;
+  const totalRounds = roundCount(g);
   const [sending, setSending] = useState(false);
   const [genErr, setGenErr] = useState('');
   /** Category tapped but not confirmed yet (guards against accidental taps). */
@@ -372,7 +399,8 @@ function PickPhase({ g, refresh }: { g: GameRow; refresh: () => Promise<void> })
     setSending(true);
     sfx.correct();
     try {
-      await backend.setPick(g.id, who, cat);
+      const prev = who === 'host' ? g.host_veto : g.guest_veto;
+      await backend.setPicks(g.id, who, [...picksOf(prev), cat].join(','), prev);
       await refresh();
     } finally {
       setSending(false);
@@ -432,11 +460,11 @@ function PickPhase({ g, refresh }: { g: GameRow; refresh: () => Promise<void> })
   }, [turn, g.rounds, role, genErr === '']);
 
   const whose = (id: string) =>
-    id === g.host_veto
+    picksOf(g.host_veto).includes(id)
       ? role === 'host'
         ? 'your pick'
         : `${g.host_name}'s pick`
-      : id === g.guest_veto
+      : picksOf(g.guest_veto).includes(id)
         ? role === 'guest'
           ? 'your pick'
           : `${g.guest_name}'s pick`

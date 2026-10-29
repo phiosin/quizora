@@ -2,8 +2,9 @@ import { buildTag } from '../lib/update';
 import { isMuted, setMuted } from '../lib/sound';
 import { useEffect, useRef, useState } from 'react';
 import { backend } from '../lib/backend';
-import { describeDifficulty } from '../lib/categories';
-import { forgetGame, getProfile, myGames, rememberGame, setName } from '../lib/profile';
+import { describeDifficulty, roundsFor } from '../lib/categories';
+import { claimName, forgetGame, getProfile, myGames, rememberGame } from '../lib/profile';
+import { computeStats, type Stats } from '../lib/stats';
 import { sfx } from '../lib/sound';
 import { go } from '../lib/router';
 import type { GameRow } from '../lib/types';
@@ -11,21 +12,31 @@ import { matchStatus } from './matchStatus';
 
 export function NameCard({ onDone }: { onDone: () => void }) {
   const [name, setN] = useState(getProfile().name);
+  const [busy, setBusy] = useState(false);
   return (
     <form
       className="card"
-      onSubmit={(e) => {
+      onSubmit={async (e) => {
         e.preventDefault();
-        if (!name.trim()) return;
-        setName(name);
+        if (!name.trim() || busy) return;
+        setBusy(true);
+        const res = await claimName(name).catch(() => 'offline' as const);
+        try {
+          sessionStorage.setItem('quizora:hello', res);
+        } catch {
+          /* ignore */
+        }
         onDone();
       }}
     >
       <h3>What should we call you?</h3>
-      <p className="muted">Your opponent sees this name.</p>
+      <p className="muted">
+        Your opponent sees this name. Used it before on another phone? Type the same name and your profile and stats
+        come along.
+      </p>
       <input value={name} onChange={(e) => setN(e.target.value)} placeholder="Nickname" maxLength={20} autoFocus />
-      <button className="btn primary wide" disabled={!name.trim()}>
-        Let's go
+      <button className="btn primary wide" disabled={!name.trim() || busy}>
+        {busy ? 'One moment…' : "Let's go"}
       </button>
     </form>
   );
@@ -35,13 +46,34 @@ export default function Home() {
   const [profile, setProfile] = useState(getProfile());
   const [editing, setEditing] = useState(!profile.name);
   const [games, setGames] = useState<GameRow[]>([]);
+  const [hidden, setHidden] = useState<Set<string>>(() => new Set(hiddenGames()));
+  const [hello] = useState(() => {
+    try {
+      return sessionStorage.getItem('quizora:hello');
+    } catch {
+      return null;
+    }
+  });
 
   useEffect(() => {
-    const codes = myGames().map((g) => g.code);
-    Promise.all(codes.map((c) => backend.getGame(c).catch(() => null))).then((rows) =>
-      setGames(rows.filter((g): g is GameRow => !!g)),
-    );
-  }, []);
+    if (editing) return;
+    let alive = true;
+    // All duels of this profile (any device), plus ones remembered on this device
+    (async () => {
+      const mine = await backend.gamesOf(profile.id).catch(() => [] as GameRow[]);
+      const known = new Set(mine.map((g) => g.id));
+      const extra = await Promise.all(
+        myGames()
+          .map((g) => g.code)
+          .filter((c) => !known.has(c))
+          .map((c) => backend.getGame(c).catch(() => null)),
+      );
+      if (alive) setGames([...mine, ...extra.filter((g): g is GameRow => !!g)]);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [profile.id, editing]);
 
   if (editing) {
     return (
@@ -61,7 +93,7 @@ export default function Home() {
     <div className="screen">
       <Logo />
       <div className="hello">
-        Hi <strong>{profile.name}</strong>{' '}
+        {hello === 'welcome-back' ? 'Welcome back' : 'Hi'} <strong>{profile.name}</strong>{' '}
         <button className="link" onClick={() => setEditing(true)}>
           change
         </button>
@@ -85,11 +117,11 @@ export default function Home() {
 
       <OpenGames myId={profile.id} />
 
-      {games.some((g) => g.guest_id) && (
+      {games.some((g) => g.guest_id && !hidden.has(g.id)) && (
         <>
           <h3 className="section-title">Your duels</h3>
           <div className="game-list">
-            {games.filter((g) => g.guest_id).map((g) => {
+            {games.filter((g) => g.guest_id && !hidden.has(g.id)).map((g) => {
               const st = matchStatus(g, profile.id);
               return (
                 <div key={g.id} className="game-row" onClick={() => go(`/m/${g.id}`)}>
@@ -104,7 +136,8 @@ export default function Home() {
                     onClick={(e) => {
                       e.stopPropagation();
                       forgetGame(g.id);
-                      setGames(games.filter((x) => x.id !== g.id));
+                      hideGame(g.id);
+                      setHidden(new Set(hiddenGames()));
                     }}
                   >
                     ×
@@ -115,6 +148,8 @@ export default function Home() {
           </div>
         </>
       )}
+
+      <Leaderboard myId={profile.id} />
 
       <p className="center small">
         <button className="link" onClick={() => go('/join')}>
@@ -131,6 +166,88 @@ export default function Home() {
         <small>build {buildTag()}</small>
       </footer>
     </div>
+  );
+}
+
+const HIDE_KEY = 'quizora:hidden-games';
+function hiddenGames(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(HIDE_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
+function hideGame(id: string) {
+  try {
+    localStorage.setItem(HIDE_KEY, JSON.stringify([...hiddenGames(), id].slice(-200)));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Your record plus everyone's, from finished duels. */
+function Leaderboard({ myId }: { myId: string }) {
+  const [rows, setRows] = useState<Stats[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const [games, players] = await Promise.all([
+        backend.allGames().catch(() => [] as GameRow[]),
+        backend.listPlayers().catch(() => []),
+      ]);
+      const stats = computeStats(games);
+      // Current names come from profiles; players without finished duels still show up
+      for (const p of players) {
+        const s = stats.get(p.id);
+        if (s) s.name = p.name;
+        else stats.set(p.id, { id: p.id, name: p.name, played: 0, wins: 0, losses: 0, draws: 0, points: 0, best: 0 });
+      }
+      const list = [...stats.values()].sort((a, b) => b.wins - a.wins || a.losses - b.losses || b.points - a.points);
+      if (alive) setRows(list);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [myId]);
+
+  if (!rows || rows.length === 0) return null;
+  const me = rows.find((r) => r.id === myId);
+  const medal = (i: number, r: Stats) => (r.wins > 0 && i < 3 ? ['🥇', '🥈', '🥉'][i] : String(i + 1));
+  return (
+    <>
+      {me && (
+        <div className="card me-card">
+          <div className="me-stat">
+            <strong>{me.played}</strong>
+            <small>played</small>
+          </div>
+          <div className="me-stat win">
+            <strong>{me.wins}</strong>
+            <small>won</small>
+          </div>
+          <div className="me-stat lose">
+            <strong>{me.losses}</strong>
+            <small>lost</small>
+          </div>
+          <div className="me-stat">
+            <strong>{me.best}</strong>
+            <small>best score</small>
+          </div>
+        </div>
+      )}
+      <h3 className="section-title">Leaderboard</h3>
+      <div className="card board">
+        {rows.slice(0, 20).map((r, i) => (
+          <div key={r.id} className={'board-row ' + (r.id === myId ? 'me' : '')}>
+            <span className="board-rank">{medal(i, r)}</span>
+            <span className="board-name">{r.name}</span>
+            <span className="board-rec">
+              {r.wins}W {r.losses}L{r.draws ? ' ' + r.draws + 'D' : ''}
+            </span>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -197,7 +314,7 @@ function OpenGames({ myId }: { myId: string }) {
               <div>
                 <strong>{mine ? 'Your game' : g.host_name}</strong>
                 <small>
-                  {describeDifficulty(g.settings.difficulty)} · {(g.settings.presets ?? 1) + 2} rounds
+                  {describeDifficulty(g.settings.difficulty)} · {roundsFor(g.settings.presets ?? 1, g.settings.picks ?? 1)} rounds
                 </small>
               </div>
               {mine ? (
