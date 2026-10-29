@@ -1,12 +1,17 @@
 /** Lowercase, strip accents and punctuation: "Côte d’Ivoire" → "cote divoire". */
 export function norm(s: string): string {
   return s
+    .replace(/ß/g, 'ss')
+    .replace(/[øØ]/g, 'o')
+    .replace(/[æÆ]/g, 'ae')
+    .replace(/[łŁ]/g, 'l')
+    .replace(/[đĐ]/g, 'd')
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
     .replace(/&/g, 'and')
     .replace(/[^a-z0-9 ]+/g, '')
-    .replace(/\b(the|river|state of|republic of)\b/g, ' ')
+    .replace(/\b(the|river|rio|fluss|state of|republic of)\b/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }

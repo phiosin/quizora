@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { catById, LEVEL_NAMES } from '../lib/categories';
 import { loadMap } from '../lib/generate';
 import type { MapData, RoundResult, RoundSpec } from '../lib/types';
+import { sfx } from '../lib/sound';
 import ChoiceRound from './ChoiceRound';
 import MapLocateRound from './MapLocateRound';
 import MapTypeRound from './MapTypeRound';
@@ -16,7 +17,7 @@ interface Props {
 }
 
 const HOW: Record<RoundSpec['type'], string> = {
-  'map-type': 'Some places are highlighted in red. Type their names: typos are mostly forgiven. Wrong guesses cost points; finishing early earns a time bonus.',
+  'map-type': 'Some places are highlighted in red. Type their names in English, German or Spanish: typos are mostly forgiven. Wrong guesses cost points; finishing early earns a time bonus.',
   'map-locate': 'A name appears. Tap it on the map (pinch or use +/− to zoom). Three tries per place: the first try scores most.',
   choice: 'Pick the right answer. Faster answers score more.',
 };
@@ -65,7 +66,9 @@ export default function RoundPlayer({ spec, title, onStart, onEnd, onContinue, o
           <button
             className="btn primary wide big"
             disabled={!ready}
+            data-sfx="off"
             onClick={() => {
+              sfx.start();
               onStart?.();
               setStarted(true);
             }}

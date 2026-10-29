@@ -1,3 +1,4 @@
+import { sfx } from '../lib/sound';
 import { useState } from 'react';
 import type { RoundResult, RoundSpec } from '../lib/types';
 import { useCountdown } from '../lib/useCountdown';
@@ -23,6 +24,8 @@ export default function ChoiceRound({ spec, onEnd, onContinue }: Props) {
     if (picked !== null || result) return;
     setPicked(choice);
     const ok = choice === q.answer;
+    if (ok) sfx.correct();
+    else sfx.wrong();
     const gained = ok ? 50 + Math.round((50 * leftNow) / spec.perQuestion) : 0;
     const newScore = score + gained;
     const newAnswers = [...answers, ok];
@@ -41,6 +44,7 @@ export default function ChoiceRound({ spec, onEnd, onContinue }: Props) {
           timeUsed: Math.round(used),
         };
         setResult(r);
+        sfx.finish();
         onEnd(r);
       } else {
         setI(i + 1);
@@ -96,7 +100,7 @@ export default function ChoiceRound({ spec, onEnd, onContinue }: Props) {
             else cls += ' dim';
           }
           return (
-            <button key={k} className={cls} onClick={() => answer(k, left)}>
+            <button key={k} className={cls} data-sfx="off" onClick={() => answer(k, left)}>
               {o}
             </button>
           );

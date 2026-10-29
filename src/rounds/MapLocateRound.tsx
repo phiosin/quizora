@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
+import { sfx } from '../lib/sound';
 import MapView, { type ItemState } from '../components/MapView';
 import type { MapData, MapSpec, RoundResult } from '../lib/types';
 import { fmtTime, useCountdown } from '../lib/useCountdown';
@@ -38,6 +39,7 @@ export default function MapLocateRound({ spec, map, onEnd, onContinue }: Props) 
       gaveUp,
     };
     setResult(r);
+    sfx.finish();
     onEnd(r);
   };
 
@@ -58,9 +60,11 @@ export default function MapLocateRound({ spec, map, onEnd, onContinue }: Props) 
   const onTap = (id: string) => {
     if (result || busy.current || !target || done[id]) return;
     if (id === target.id) {
+      sfx.correct();
       next({ ...done, [id]: tries === 0 ? 'found' : 'partial' }, score + POINTS[tries], errors);
       return;
     }
+    sfx.wrong();
     const errs = errors + 1;
     setErrors(errs);
     const t = tries + 1;

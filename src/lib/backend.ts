@@ -1,12 +1,16 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import type { GameRow, Results } from './types';
+import type { GameRow, Results, RoundSpec } from './types';
 
 export interface Backend {
   mode: 'online' | 'local';
   createGame(g: GameRow): Promise<void>;
   getGame(id: string): Promise<GameRow | null>;
   /** Claims the guest slot. Returns false if someone else joined first. */
-  joinGame(id: string, patch: Pick<GameRow, 'guest_id' | 'guest_name' | 'guest_veto' | 'rounds'>): Promise<boolean>;
+  joinGame(id: string, patch: Pick<GameRow, 'guest_id' | 'guest_name'>): Promise<boolean>;
+  /** Sets a veto if that player hasn't vetoed yet. Returns false if it was already set. */
+  setVeto(id: string, role: 'host' | 'guest', category: string): Promise<boolean>;
+  /** Stores the generated rounds unless someone already did. */
+  setRounds(id: string, rounds: RoundSpec[]): Promise<boolean>;
   saveResults(id: string, role: 'host' | 'guest', results: Results): Promise<void>;
   subscribe(id: string, cb: (g: GameRow) => void): () => void;
 }
@@ -30,6 +34,17 @@ function supabaseBackend(sb: SupabaseClient): Backend {
       if (error) throw new Error(error.message);
       return !!data?.length;
     },
+    async setVeto(id, role, category) {
+      const col = role === 'host' ? 'host_veto' : 'guest_veto';
+      const { data, error } = await table().update({ [col]: category }).eq('id', id).is(col, null).select('id');
+      if (error) throw new Error(error.message);
+      return !!data?.length;
+    },
+    async setRounds(id, rounds) {
+      const { data, error } = await table().update({ rounds }).eq('id', id).is('rounds', null).select('id');
+      if (error) throw new Error(error.message);
+      return !!data?.length;
+    },
     async saveResults(id, role, results) {
       const { error } = await table()
         .update(role === 'host' ? { host_results: results } : { guest_results: results })
@@ -43,13 +58,24 @@ function supabaseBackend(sb: SupabaseClient): Backend {
           cb(p.new as GameRow),
         )
         .subscribe();
-      // Polling as a safety net in case realtime isn't enabled.
-      const t = setInterval(async () => {
+      // Polling as a safety net in case realtime is slow or off.
+      // Fast while players are joining/vetoing (both are live then), slow afterwards.
+      let t: ReturnType<typeof setTimeout>;
+      let stopped = false;
+      let setupDone = false;
+      const poll = async () => {
         const g = await this.getGame(id).catch(() => null);
-        if (g) cb(g);
-      }, 8000);
+        if (stopped) return;
+        if (g) {
+          setupDone = !!g.rounds;
+          cb(g);
+        }
+        t = setTimeout(poll, setupDone ? 8000 : 1500);
+      };
+      t = setTimeout(poll, 1500);
       return () => {
-        clearInterval(t);
+        stopped = true;
+        clearTimeout(t);
         sb.removeChannel(ch);
       };
     },
@@ -79,6 +105,21 @@ function localBackend(): Backend {
       const db = all();
       if (!db[id] || db[id].guest_id) return false;
       db[id] = { ...db[id], ...patch };
+      save(db);
+      return true;
+    },
+    async setVeto(id, role, category) {
+      const db = all();
+      const col = role === 'host' ? 'host_veto' : 'guest_veto';
+      if (!db[id] || db[id][col]) return false;
+      db[id] = { ...db[id], [col]: category };
+      save(db);
+      return true;
+    },
+    async setRounds(id, rounds) {
+      const db = all();
+      if (!db[id] || db[id].rounds) return false;
+      db[id] = { ...db[id], rounds };
       save(db);
       return true;
     },

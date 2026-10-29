@@ -1,3 +1,4 @@
+import { isMuted, setMuted } from '../lib/sound';
 import { useEffect, useState } from 'react';
 import { backend } from '../lib/backend';
 import { forgetGame, getProfile, myGames, setName } from '../lib/profile';
@@ -126,9 +127,22 @@ export default function Home() {
 }
 
 export function Logo() {
+  const [muted, setM] = useState(isMuted);
   return (
-    <div className="logo" onClick={() => go('/')}>
-      <span className="logo-q">🧭</span> Quiz<span>ora</span>
+    <div className="logo-row">
+      <div className="logo" onClick={() => go('/')}>
+        <span className="logo-q">🧭</span> Quiz<span>ora</span>
+      </div>
+      <button
+        className="mute"
+        aria-label={muted ? 'Turn sound on' : 'Turn sound off'}
+        onClick={() => {
+          setMuted(!muted);
+          setM(!muted);
+        }}
+      >
+        {muted ? '🔇' : '🔊'}
+      </button>
     </div>
   );
 }

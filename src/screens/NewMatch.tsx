@@ -29,12 +29,10 @@ export default function NewMatch() {
   const [diff, setDiff] = useState(0);
   const [offer, setOffer] = useState(randomOffer);
   const [rerolls, setRerolls] = useState(2);
-  const [veto, setVeto] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
   const create = async () => {
-    if (!veto) return;
     setBusy(true);
     setErr('');
     const p = getProfile();
@@ -49,7 +47,7 @@ export default function NewMatch() {
           guest_name: null,
           settings: { difficulty: DIFFICULTY_OPTIONS[diff].value },
           offered: offer,
-          host_veto: veto,
+          host_veto: null,
           guest_veto: null,
           rounds: null,
           host_results: {},
@@ -86,13 +84,12 @@ export default function NewMatch() {
 
       <div className="card">
         <div className="row-between">
-          <h3>2 · Veto one category</h3>
+          <h3>2 · Categories on offer</h3>
           <button
             className="btn small ghost"
             disabled={rerolls === 0}
             onClick={() => {
               setOffer(randomOffer());
-              setVeto(null);
               setRerolls(rerolls - 1);
             }}
           >
@@ -100,18 +97,19 @@ export default function NewMatch() {
           </button>
         </div>
         <p className="muted">
-          Tap the category you <em>don't</em> want. Your opponent vetoes one too, and the remaining 3 are played.
+          Once your opponent joins, you each veto one category, taking turns with 10 seconds each. The remaining 3 are
+          played.
         </p>
         <div className="cat-list">
           {offer.map((id) => (
-            <CategoryChip key={id} id={id} vetoed={veto === id} onClick={() => setVeto(veto === id ? null : id)} />
+            <CategoryChip key={id} id={id} />
           ))}
         </div>
       </div>
 
       {err && <p className="error">{err}</p>}
-      <button className="btn primary wide big" disabled={!veto || busy} onClick={create}>
-        {busy ? 'Creating…' : veto ? 'Create duel & get code' : 'Veto a category first'}
+      <button className="btn primary wide big" disabled={busy} onClick={create}>
+        {busy ? 'Creating…' : 'Create lobby & get code'}
       </button>
     </div>
   );

@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
+import { sfx } from '../lib/sound';
 import MapView, { type ItemState } from '../components/MapView';
 import { exactMatch, fuzzyMatch } from '../lib/text';
 import type { MapData, MapSpec, RoundResult } from '../lib/types';
@@ -38,6 +39,7 @@ export default function MapTypeRound({ spec, map, onEnd, onContinue }: Props) {
       gaveUp,
     };
     setResult(r);
+    sfx.finish();
     inputRef.current?.blur();
     onEnd(r);
   };
@@ -46,6 +48,7 @@ export default function MapTypeRound({ spec, map, onEnd, onContinue }: Props) {
 
   const accept = (id: string) => {
     const next = [...found, id];
+    sfx.correct();
     setFound(next);
     setInput('');
     setMsg({ text: `✓ ${targets.find((t) => t.id === id)!.name}`, kind: 'ok' });
@@ -69,6 +72,7 @@ export default function MapTypeRound({ spec, map, onEnd, onContinue }: Props) {
       setInput('');
       return;
     }
+    sfx.wrong();
     setErrors((e) => e + 1);
     setMsg({ text: `✗ “${input.trim()}” isn't one of the red ones`, kind: 'bad' });
     setInput('');
@@ -105,7 +109,7 @@ export default function MapTypeRound({ spec, map, onEnd, onContinue }: Props) {
         </div>
       ) : (
         <div className="round-foot">
-          <div className={`feedback ${msg?.kind ?? ''}`}>{msg?.text ?? 'Type the names of the red ones'}</div>
+          <div className={`feedback ${msg?.kind ?? ''}`}>{msg?.text ?? 'Type the names of the red ones (English, German or Spanish)'}</div>
           <form
             className="type-row"
             onSubmit={(e) => {

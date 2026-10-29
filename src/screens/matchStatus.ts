@@ -16,6 +16,9 @@ export function matchStatus(g: GameRow, me: string) {
   if (!g.guest_id) {
     label = role === 'host' ? 'Waiting for opponent' : 'Open';
     tone = 'wait';
+  } else if (!g.rounds) {
+    label = 'Vetoing…';
+    tone = 'turn';
   } else if (myDone && theirDone) {
     const a = total(mine),
       b = total(theirs);
