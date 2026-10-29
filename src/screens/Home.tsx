@@ -55,6 +55,27 @@ export default function Home() {
     }
   });
 
+  // Phones that already had a name: register it once per visit (links same-name profiles across devices)
+  useEffect(() => {
+    if (editing || !profile.name) return;
+    let done = false;
+    try {
+      done = sessionStorage.getItem('quizora:claimed') === profile.id;
+    } catch {
+      /* ignore */
+    }
+    if (done) return;
+    void claimName(profile.name).then(() => {
+      const now = getProfile();
+      try {
+        sessionStorage.setItem('quizora:claimed', now.id);
+      } catch {
+        /* ignore */
+      }
+      if (now.id !== profile.id) setProfile(now);
+    });
+  }, [editing, profile.id, profile.name]);
+
   useEffect(() => {
     if (editing) return;
     let alive = true;
