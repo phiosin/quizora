@@ -52,6 +52,10 @@ export const sfx = {
     tone(880, 0.14, 0, 'sine');
     tone(1320, 0.22, 0.12, 'sine');
   },
+  /** Your veto turn starts */
+  yourTurn: () => [659, 880, 1319].forEach((f, i) => tone(f, 0.16, i * 0.08, 'triangle')),
+  /** Opponent's veto turn starts */
+  theirTurn: () => tone(523, 0.18, 0, 'sine', 0.7),
   tick: () => tone(1000, 0.05, 0, 'square', 0.25),
   veto: () => tone(330, 0.16, 0, 'sawtooth', 0.35),
   finish: () => [784, 659, 784, 1047].forEach((f, i) => tone(f, 0.22, i * 0.11, 'sine')),

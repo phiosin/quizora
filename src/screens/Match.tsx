@@ -260,6 +260,13 @@ function VetoPhase({ g, refresh }: { g: GameRow; refresh: () => Promise<void> })
   );
   const shown = Math.max(0, Math.ceil(left - (myTurn ? 0 : AWAY_GRACE)));
 
+  // Sound when a veto turn begins
+  useEffect(() => {
+    if (!turn || role === 'none') return;
+    if (myTurn) sfx.yourTurn();
+    else sfx.theirTurn();
+  }, [turn, myTurn, role]);
+
   // Soft tick for the last seconds of my own turn
   const lastTick = useRef(0);
   useEffect(() => {

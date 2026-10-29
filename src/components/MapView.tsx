@@ -160,10 +160,41 @@ export default function MapView({ map, states, showIdle = true, labels, onTap, t
     ptrs.current.delete(e.pointerId);
     if (ptrs.current.size > 0) startGesture();
     if (wasTap && onTap) {
-      const el = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-id]');
-      const id = el?.getAttribute('data-id');
-      if (id && (!tappable || tappable(id))) onTap(id);
+      const id = pickAt(e.clientX, e.clientY);
+      if (id) onTap(id);
     }
+  };
+
+  /** The item under a tap. Rivers have wide, overlapping tap zones, so pick the closest line. */
+  const pickAt = (cx: number, cy: number): string | undefined => {
+    const ids = [
+      ...new Set(
+        document
+          .elementsFromPoint(cx, cy)
+          .map((el) => el.closest('[data-id]')?.getAttribute('data-id'))
+          .filter((id): id is string => !!id && (!tappable || tappable(id))),
+      ),
+    ];
+    if (ids.length <= 1 || map.kind !== 'line') return ids[0];
+    let best: string | undefined;
+    let bestD = Infinity;
+    for (const id of ids) {
+      const p = svgRef.current?.querySelector<SVGPathElement>(`[data-id="${id}"] path:not(.hit)`);
+      const m = p?.getScreenCTM();
+      if (!p || !m) continue;
+      const pt = new DOMPoint(cx, cy).matrixTransform(m.inverse());
+      const len = p.getTotalLength();
+      const step = Math.max(0.3, len / 3000);
+      for (let s = 0; s <= len; s += step) {
+        const q = p.getPointAtLength(s);
+        const d = (q.x - pt.x) ** 2 + (q.y - pt.y) ** 2;
+        if (d < bestD) {
+          bestD = d;
+          best = id;
+        }
+      }
+    }
+    return best ?? ids[0];
   };
 
   useEffect(() => {

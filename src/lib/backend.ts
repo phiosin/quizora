@@ -52,16 +52,19 @@ function supabaseBackend(sb: SupabaseClient): Backend {
       if (error) throw new Error(error.message);
     },
     subscribe(id, cb) {
+      let stopped = false;
       const ch = sb
         .channel(`game-${id}`)
-        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'games', filter: `id=eq.${id}` }, (p) =>
-          cb(p.new as GameRow),
-        )
+        // Realtime trims big rows (e.g. the rounds with all questions), so only use it as a
+        // "something changed" signal and fetch the full row.
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'games', filter: `id=eq.${id}` }, async () => {
+          const g = await this.getGame(id).catch(() => null);
+          if (g && !stopped) cb(g);
+        })
         .subscribe();
       // Polling as a safety net in case realtime is slow or off.
       // Fast while players are joining/vetoing (both are live then), slow afterwards.
       let t: ReturnType<typeof setTimeout>;
-      let stopped = false;
       let setupDone = false;
       const poll = async () => {
         const g = await this.getGame(id).catch(() => null);
