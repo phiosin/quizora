@@ -71,8 +71,27 @@ export function setMuted(m: boolean) {
   }
 }
 
+/**
+ * iPhones only allow audio after a real tap (touchend/click, not just touch start).
+ * Resume the audio engine and play a silent sound on those to unlock it.
+ */
+function unlock() {
+  const c = ac();
+  if (!c) return;
+  if (c.state !== 'running') void c.resume();
+  try {
+    const src = c.createBufferSource();
+    src.buffer = c.createBuffer(1, 1, 22050);
+    src.connect(c.destination);
+    src.start(0);
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Soft click on every button press, unless the button opts out with data-sfx="off". */
 export function installClickSounds() {
+  for (const ev of ['touchend', 'click', 'keydown']) document.addEventListener(ev, unlock, { capture: true, passive: true });
   document.addEventListener(
     'pointerdown',
     (e) => {

@@ -1,3 +1,4 @@
+import { buildTag } from '../lib/update';
 import { isMuted, setMuted } from '../lib/sound';
 import { useEffect, useState } from 'react';
 import { backend } from '../lib/backend';
@@ -121,7 +122,11 @@ export default function Home() {
       {backend.mode === 'local' && (
         <p className="notice">Local mode: no server configured, so duels only work inside this browser.</p>
       )}
-      <footer className="foot">No ads. No tracking. Just quizzing.</footer>
+      <footer className="foot">
+        No ads. No tracking. Just quizzing.
+        <br />
+        <small>build {buildTag()}</small>
+      </footer>
     </div>
   );
 }
