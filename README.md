@@ -22,7 +22,7 @@ Without Supabase settings the app runs in **local mode** (duels only work inside
 1. Create a free project at https://supabase.com
 2. SQL Editor → paste and run [`supabase/schema.sql`](supabase/schema.sql)
 3. Copy `.env.example` to `.env.local` and fill in URL + anon/publishable key
-4. For the deployed site, set the same two values as GitHub repo **variables** (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`)
+4. For the deployed site, set the same two values as GitHub repo **secrets** (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`)
 
 ### Map data
 Pre-built map files live in `public/data/`. To rebuild them, download the Natural Earth river files into `scripts/raw/`:
